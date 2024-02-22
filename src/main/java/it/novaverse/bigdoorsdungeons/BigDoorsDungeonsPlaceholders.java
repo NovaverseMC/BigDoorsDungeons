@@ -9,9 +9,11 @@ import org.jetbrains.annotations.NotNull;
 public class BigDoorsDungeonsPlaceholders extends PlaceholderExpansion {
 
     private final BigDoorsDungeons plugin;
+    private final HookedDoorStorage storage;
 
-    public BigDoorsDungeonsPlaceholders(BigDoorsDungeons plugin) {
+    public BigDoorsDungeonsPlaceholders(BigDoorsDungeons plugin, HookedDoorStorage storage) {
         this.plugin = plugin;
+        this.storage = storage;
     }
 
     @Override
@@ -50,8 +52,11 @@ public class BigDoorsDungeonsPlaceholders extends PlaceholderExpansion {
             if (!instance.isEditMode()) {
                 doorName = doorName + "_" + player.getWorld().getName();
             }
-            var id = plugin.getDungeonDoorId(doorName);
-            return String.valueOf(id);
+            var door = storage.getVirtualDoorByName(doorName);
+            if (door == null) {
+                return "Unknown_door";
+            }
+            return String.valueOf(door.getDoorUID());
         }
 
         return null;
