@@ -70,23 +70,25 @@ public final class BigDoorsDungeons extends JavaPlugin implements Listener {
     public void onWorldLoad(WorldLoadEvent event) {
         var world = event.getWorld();
 
-        // Wait 1 tick, MD might not be ready yet
-        getServer().getScheduler().runTask(this, () -> {
+        getServer().getScheduler().runTaskLater(this, () -> {
+            if (getServer().getWorld(world.getUID()) == null) {
+                return;
+            }
+
             var instance = getDungeonInstance(world);
             if (instance == null) {
                 return;
             }
-            var dungeon = instance.getDungeon();
 
-            // Load data async, the virtual door storage is async safe!
-            getServer().getScheduler().runTaskAsynchronously(this, () -> {
-                var count = hookedDoorStorage.loadVirtualDoors(dungeon.getWorldName(), world, !instance.isEditMode());
-                getSLF4JLogger().info("Loaded dungeon " + world.getName() + " doors! (" + count + ")");
-            });
-        });
+            var editMode = instance.isEditMode();
+            var dungeonName = instance.getDungeon().getWorldName();
+
+            var count = hookedDoorStorage.loadVirtualDoors(dungeonName, world, !editMode);
+            getSLF4JLogger().info("Loaded dungeon " + world.getName() + " doors! (" + count + ")");
+        }, 20);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onWorldUnload(WorldUnloadEvent event) {
         var world = event.getWorld();
 

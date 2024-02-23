@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -63,8 +62,8 @@ public class HookedDoorStorage extends SQLiteJDBCDriverConnection {
 
     public HookedDoorStorage(BigDoors bigDoors, String dbName) {
         super(bigDoors, dbName);
-        virtualDoors = Collections.synchronizedMap(new Long2ObjectOpenHashMap<>());
-        virtualDoorsByName = new ConcurrentHashMap<>();
+        virtualDoors = new Long2ObjectOpenHashMap<>();
+        virtualDoorsByName = new LinkedHashMap<>();
         lastVirtualDoorId = new AtomicLong(-1);
     }
 
@@ -230,6 +229,10 @@ public class HookedDoorStorage extends SQLiteJDBCDriverConnection {
     public int getPermission(String playerUUID, long doorUID) {
         if (doorUID >= 0) {
             return super.getPermission(playerUUID, doorUID);
+        }
+        var onlinePlayer = Bukkit.getPlayer(UUID.fromString(playerUUID));
+        if (onlinePlayer != null && onlinePlayer.hasPermission("bigdoorsdungeons.admin")) {
+            return 0;
         }
         return -1;
     }
