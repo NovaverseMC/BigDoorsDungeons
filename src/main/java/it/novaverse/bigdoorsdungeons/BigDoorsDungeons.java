@@ -23,7 +23,10 @@ public final class BigDoorsDungeons extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
-        hookedDoorStorage = new HookedDoorStorage(BigDoors.get(), BigDoors.get().getConfigLoader().dbFile());
+        saveDefaultConfig();
+        reloadConfig();
+
+        hookedDoorStorage = new HookedDoorStorage(this, BigDoors.get(), BigDoors.get().getConfigLoader().dbFile());
         try {
             FieldUtils.writeDeclaredField(BigDoors.get(), "db", hookedDoorStorage, true);
             FieldUtils.writeDeclaredField(BigDoors.get().getCommander(), "db", hookedDoorStorage, true);
@@ -83,7 +86,7 @@ public final class BigDoorsDungeons extends JavaPlugin implements Listener {
             var editMode = instance.isEditMode();
             var dungeonName = instance.getDungeon().getWorldName();
 
-            var count = hookedDoorStorage.loadVirtualDoors(dungeonName, world, !editMode);
+            var count = hookedDoorStorage.loadVirtualDoors(dungeonName, world, editMode);
             getSLF4JLogger().info("Loaded dungeon " + world.getName() + " doors! (" + count + ")");
         }, 20);
     }

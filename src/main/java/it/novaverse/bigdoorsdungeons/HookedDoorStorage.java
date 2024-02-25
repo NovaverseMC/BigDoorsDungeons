@@ -4,64 +4,35 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import nl.pim16aap2.bigDoors.BigDoors;
 import nl.pim16aap2.bigDoors.Door;
 import nl.pim16aap2.bigDoors.storage.sqlite.SQLiteJDBCDriverConnection;
-import nl.pim16aap2.bigDoors.util.*;
+import nl.pim16aap2.bigDoors.util.DoorDirection;
+import nl.pim16aap2.bigDoors.util.DoorOwner;
+import nl.pim16aap2.bigDoors.util.DoorType;
+import nl.pim16aap2.bigDoors.util.RotateDirection;
 import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.commons.lang3.reflect.MethodUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.jetbrains.annotations.Nullable;
 
-import java.lang.reflect.InvocationTargetException;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-@SuppressWarnings({"SqlDialectInspection", "SqlNoDataSourceInspection"})
 public class HookedDoorStorage extends SQLiteJDBCDriverConnection {
 
     private final static UUID VIRTUAL_DOOR_OWNER_UUID = UUID.fromString("a8190a78-cf83-11ee-a506-0242ac120002");
     private final static String VIRTUAL_DOOR_OWNER_NAME = "BigDoorsDungeons";
 
-    private static final int DOOR_ID = 1;
-    private static final int DOOR_NAME = 2;
-    private static final int DOOR_WORLD = 3;
-    private static final int DOOR_OPEN = 4;
-    private static final int DOOR_MIN_X = 5;
-    private static final int DOOR_MIN_Y = 6;
-    private static final int DOOR_MIN_Z = 7;
-    private static final int DOOR_MAX_X = 8;
-    private static final int DOOR_MAX_Y = 9;
-    private static final int DOOR_MAX_Z = 10;
-    private static final int DOOR_ENG_X = 11;
-    private static final int DOOR_ENG_Y = 12;
-    private static final int DOOR_ENG_Z = 13;
-    private static final int DOOR_LOCKED = 14;
-    private static final int DOOR_TYPE = 15;
-    private static final int DOOR_ENG_SIDE = 16;
-    private static final int DOOR_POWER_X = 17;
-    private static final int DOOR_POWER_Y = 18;
-    private static final int DOOR_POWER_Z = 19;
-    private static final int DOOR_OPEN_DIR = 20;
-    private static final int DOOR_AUTO_CLOSE = 21;
-    private static final int DOOR_CHUNK_HASH = 22;
-    private static final int DOOR_BLOCKS_TO_MOVE = 23;
-    private static final int DOOR_NOTIFY = 24;
-    private static final int DOOR_BYPASS_PROTECTIONS = 25;
+    private final BigDoorsDungeons plugin;
 
     private final Map<Long, Door> virtualDoors;
+
     private final Map<String, Door> virtualDoorsByName;
     private final AtomicLong lastVirtualDoorId;
 
-    private static UUID getVirtualWorldUUID(String worldName) {
-        return UUID.nameUUIDFromBytes(worldName.getBytes(StandardCharsets.UTF_8));
-    }
-
-    public HookedDoorStorage(BigDoors bigDoors, String dbName) {
+    public HookedDoorStorage(BigDoorsDungeons plugin, BigDoors bigDoors, String dbName) {
         super(bigDoors, dbName);
+        this.plugin = plugin;
         virtualDoors = new Long2ObjectOpenHashMap<>();
         virtualDoorsByName = new LinkedHashMap<>();
         lastVirtualDoorId = new AtomicLong(-1);
@@ -71,155 +42,95 @@ public class HookedDoorStorage extends SQLiteJDBCDriverConnection {
         return virtualDoorsByName.get(name);
     }
 
-    // Raw SQL methods
-
-    private Connection getSQLConnection() {
-        try {
-            return (Connection) MethodUtils.invokeMethod(this, true, "getConnection");
-        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void deleteInWorldRaw(UUID worldUID) {
-        try (var connection = getSQLConnection()) {
-            try (var statement = connection.prepareStatement("DELETE FROM doors WHERE world = ?")) {
-                statement.setString(1, worldUID.toString());
-                statement.executeUpdate();
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    @SuppressWarnings({"UnusedReturnValue", "unused", "SameParameterValue"})
-    private long insertRaw(UUID player, String playerName, UUID primeOwner, UUID worldUID, Location min, Location max, Location engine, String name, boolean isOpen, Long doorUID, boolean isLocked, int permission, DoorType type, DoorDirection engineSide, Location powerBlock, RotateDirection openDir, int autoClose, boolean notify, boolean bypassProtections, int blocksToMove) {
-        try (var connection = getSQLConnection()) {
-            var insertSql = "INSERT INTO doors(id,name,world,isOpen,xMin,yMin,zMin,xMax,yMax,zMax,engineX,engineY,engineZ,isLocked,type,engineSide,powerBlockX,powerBlockY,powerBlockZ,openDirection,autoClose,chunkHash,blocksToMove,notify,bypass_protections) "
-                    + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-
-            try (var statement = connection.prepareStatement(insertSql)) {
-                statement.setLong(DOOR_ID, doorUID);
-                statement.setString(DOOR_NAME, name);
-                statement.setString(DOOR_WORLD, worldUID.toString());
-                statement.setInt(DOOR_OPEN, isOpen ? 1 : 0);
-                statement.setInt(DOOR_MIN_X, min.getBlockX());
-                statement.setInt(DOOR_MIN_Y, min.getBlockY());
-                statement.setInt(DOOR_MIN_Z, min.getBlockZ());
-                statement.setInt(DOOR_MAX_X, max.getBlockX());
-                statement.setInt(DOOR_MAX_Y, max.getBlockY());
-                statement.setInt(DOOR_MAX_Z, max.getBlockZ());
-                statement.setInt(DOOR_ENG_X, engine.getBlockX());
-                statement.setInt(DOOR_ENG_Y, engine.getBlockY());
-                statement.setInt(DOOR_ENG_Z, engine.getBlockZ());
-                statement.setInt(DOOR_LOCKED, isLocked ? 1 : 0);
-                statement.setInt(DOOR_TYPE, DoorType.getValue(type));
-                statement.setInt(DOOR_ENG_SIDE, engineSide == null ? -1 : DoorDirection.getValue(engineSide));
-                statement.setInt(DOOR_POWER_X, engine.getBlockX());
-                statement.setInt(DOOR_POWER_Y, engine.getBlockY() - 1);
-                statement.setInt(DOOR_POWER_Z, engine.getBlockZ());
-                statement.setInt(DOOR_OPEN_DIR, RotateDirection.getValue(openDir));
-                statement.setInt(DOOR_AUTO_CLOSE, autoClose);
-                statement.setLong(DOOR_CHUNK_HASH, Util.chunkHashFromLocation(powerBlock.getBlockX(), powerBlock.getBlockZ(), worldUID));
-                statement.setLong(DOOR_BLOCKS_TO_MOVE, blocksToMove);
-                statement.setInt(DOOR_NOTIFY, notify ? 1 : 0);
-                statement.setInt(DOOR_BYPASS_PROTECTIONS, bypassProtections ? 1 : 0);
-                statement.executeUpdate();
-                try (var resultSet = statement.getGeneratedKeys()) {
-                    resultSet.next();
-                    return resultSet.getLong(1);
-                }
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
     // Virtual door save/load methods
 
     public int saveVirtualDoors(World sourceWorld, String saveName) {
-        var saveWorldUID = getVirtualWorldUUID(saveName);
+        var worldsSection = plugin.getConfig().getConfigurationSection("worlds");
+        if (worldsSection == null) {
+            worldsSection = plugin.getConfig().createSection("worlds");
+        }
+        worldsSection.set(saveName, null);
+
+        var worldSection = worldsSection.createSection(saveName);
+
         var doorsCount = 0;
-        deleteInWorldRaw(saveWorldUID);
         for (var door : getDoorsInWorld(sourceWorld)) {
-            insertRaw(
-                    VIRTUAL_DOOR_OWNER_UUID,
-                    VIRTUAL_DOOR_OWNER_NAME,
-                    VIRTUAL_DOOR_OWNER_UUID,
-                    saveWorldUID,
-                    door.getMinimum(),
-                    door.getMaximum(),
-                    door.getEngine(),
-                    door.getName(),
-                    door.isOpen(),
-                    door.getDoorUID(),
-                    door.isLocked(),
-                    0,
-                    door.getType(),
-                    door.getEngSide(),
-                    door.getPowerBlockLoc(),
-                    door.getOpenDir(),
-                    door.getAutoClose(),
-                    door.notificationEnabled(),
-                    door.bypassProtections(),
-                    door.getBlocksToMove()
-            );
+            var doorSection = worldSection.createSection(door.getName());
+            doorSection.set("min", door.getMinimum().toVector());
+            doorSection.set("max", door.getMaximum().toVector());
+            doorSection.set("engine", door.getEngine().toVector());
+            doorSection.set("powerBlock", door.getPowerBlockLoc().toVector());
+            doorSection.set("open", door.isOpen());
+            doorSection.set("locked", door.isLocked());
+            doorSection.set("type", door.getType().name());
+            doorSection.set("engSide", door.getEngSide().name());
+            doorSection.set("openDir", door.getOpenDir().name());
+            doorSection.set("autoClose", door.getAutoClose());
+            doorSection.set("notificationEnabled", door.notificationEnabled());
+            doorSection.set("bypassProtections", door.bypassProtections());
+            doorSection.set("blocksToMove", door.getBlocksToMove());
             doorsCount++;
         }
+
+        plugin.saveConfig();
+
         return doorsCount;
     }
 
-    public int loadVirtualDoors(String saveName, World targetWorld, boolean addWorldSuffix) {
-        var saveWorldUID = getVirtualWorldUUID(saveName);
-        var doorsCount = 0;
-        try (var connection = getSQLConnection()) {
-            try (var preparedStatement = connection.prepareStatement("SELECT * FROM doors WHERE world = ?")) {
-                preparedStatement.setString(1, saveWorldUID.toString());
-                try (var resultSet = preparedStatement.executeQuery()) {
-                    while (resultSet.next()) {
-                        var min = new Location(targetWorld, resultSet.getInt(DOOR_MIN_X), resultSet.getInt(DOOR_MIN_Y), resultSet.getInt(DOOR_MIN_Z));
-                        var max = new Location(targetWorld, resultSet.getInt(DOOR_MAX_X), resultSet.getInt(DOOR_MAX_Y), resultSet.getInt(DOOR_MAX_Z));
-                        var engine = new Location(targetWorld, resultSet.getInt(DOOR_ENG_X), resultSet.getInt(DOOR_ENG_Y), resultSet.getInt(DOOR_ENG_Z));
-                        var powerBlock = new Location(targetWorld, resultSet.getInt(DOOR_POWER_X), resultSet.getInt(DOOR_POWER_Y), resultSet.getInt(DOOR_POWER_Z));
-
-                        var name = resultSet.getString(DOOR_NAME);
-                        if (addWorldSuffix) {
-                            name = name + "_" + targetWorld.getName();
-                        }
-
-                        var door = new Door(
-                                VIRTUAL_DOOR_OWNER_UUID,
-                                VIRTUAL_DOOR_OWNER_NAME,
-                                VIRTUAL_DOOR_OWNER_UUID,
-                                targetWorld,
-                                min,
-                                max,
-                                engine,
-                                name, // we need suffix to make it unique
-                                (resultSet.getInt(DOOR_OPEN) == 1),
-                                resultSet.getInt(DOOR_ID),
-                                (resultSet.getInt(DOOR_LOCKED) == 1),
-                                0,
-                                DoorType.valueOf(resultSet.getInt(DOOR_TYPE)),
-                                DoorDirection.valueOf(resultSet.getInt(DOOR_ENG_SIDE)),
-                                powerBlock,
-                                RotateDirection.valueOf(resultSet.getInt(DOOR_OPEN_DIR)),
-                                resultSet.getInt(DOOR_AUTO_CLOSE),
-                                resultSet.getBoolean(DOOR_NOTIFY),
-                                resultSet.getBoolean(DOOR_BYPASS_PROTECTIONS)
-                        );
-                        door.setBlocksToMove(resultSet.getInt(DOOR_BLOCKS_TO_MOVE));
-
-                        virtualDoors.put(door.getDoorUID(), door);
-                        virtualDoorsByName.put(door.getName(), door);
-
-                        doorsCount++;
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
+    public int loadVirtualDoors(String saveName, World targetWorld, boolean editMode) {
+        var worldsSection = plugin.getConfig().getConfigurationSection("worlds");
+        if (worldsSection == null) {
+            return 0;
         }
+        var worldSection = worldsSection.getConfigurationSection(saveName);
+        if (worldSection == null) {
+            return 0;
+        }
+
+        var doorsCount = 0;
+
+        for (var doorSectionKey : worldSection.getKeys(false)) {
+            var doorSection = Objects.requireNonNull(worldSection.getConfigurationSection(doorSectionKey));
+
+            var min = Objects.requireNonNull(doorSection.getVector("min")).toLocation(targetWorld);
+            var max = Objects.requireNonNull(doorSection.getVector("max")).toLocation(targetWorld);
+            var engine = Objects.requireNonNull(doorSection.getVector("engine")).toLocation(targetWorld);
+            var powerBlock = Objects.requireNonNull(doorSection.getVector("powerBlock")).toLocation(targetWorld);
+
+            var name = doorSectionKey;
+            if (!editMode) {
+                name = name + "_" + targetWorld.getName();
+            }
+
+            var door = new Door(
+                    VIRTUAL_DOOR_OWNER_UUID,
+                    VIRTUAL_DOOR_OWNER_NAME,
+                    VIRTUAL_DOOR_OWNER_UUID,
+                    targetWorld,
+                    min,
+                    max,
+                    engine,
+                    name, // we need suffix to make it unique
+                    doorSection.getBoolean("open"),
+                    lastVirtualDoorId.decrementAndGet(), // Door id
+                    doorSection.getBoolean("locked"),
+                    0,
+                    DoorType.valueOf(doorSection.getString("type")),
+                    DoorDirection.valueOf(doorSection.getString("engSide")),
+                    powerBlock,
+                    RotateDirection.valueOf(doorSection.getString("openDir")),
+                    doorSection.getInt("autoClose"),
+                    doorSection.getBoolean("notify"),
+                    doorSection.getBoolean("bypassProtections")
+            );
+            door.setBlocksToMove(doorSection.getInt("blocksToMove"));
+
+            virtualDoors.put(door.getDoorUID(), door);
+            virtualDoorsByName.put(door.getName(), door);
+
+            doorsCount++;
+        }
+
         return doorsCount;
     }
 
@@ -343,12 +254,14 @@ public class HookedDoorStorage extends SQLiteJDBCDriverConnection {
         return new DoorOwner(BigDoors.get(), doorUID, VIRTUAL_DOOR_OWNER_UUID, 0, VIRTUAL_DOOR_OWNER_NAME);
     }
 
-    /* Power blocks are unsupported for virtual doors
+    /* FIXME: implement for virtual doors
     @Override
     public HashMap<Long, Long> getPowerBlockData(long chunkHash) {
         return super.getPowerBlockData(chunkHash);
     }
+    */
 
+    /* No need to recalculate hashes for virtual doors
     @Override
     public void recalculatePowerBlockHashes() {
         super.recalculatePowerBlockHashes();
@@ -498,7 +411,7 @@ public class HookedDoorStorage extends SQLiteJDBCDriverConnection {
         super.addOwner(doorUID, playerUUID, permission);
     }
 
-    /*
+    /* Virtual doors shouldn't be counted in the player door count
     @Override
     public long countDoors(String playerUUID, String name) {
         return super.countDoors(playerUUID, name);
